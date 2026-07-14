@@ -1,5 +1,8 @@
 """Portfolio Analyzer — Dash dashboard with real market data and statistical analysis."""
 
+import math
+import re
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -18,6 +21,9 @@ app = Dash(
     title="Portfolio Analyzer",
     suppress_callback_exceptions=True,
 )
+
+# WSGI entry point for gunicorn (`gunicorn app:server`)
+server = app.server
 
 DEFAULT_TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]
 DEFAULT_PERIOD = "1y"
@@ -75,14 +81,35 @@ def metric_card(title, value, color="#eaeaea", tooltip=None):
     )
 
 
+def parse_rf(value) -> float:
+    """Convert the risk-free % input to a decimal rate, clamped to [0, 0.25].
+
+    Falls back to the module default when the field is blank, invalid, or a
+    non-finite float (NaN/inf), any of which would otherwise slip past the clamp.
+    """
+    try:
+        rf = float(value) / 100.0
+    except (TypeError, ValueError):
+        return an.DEFAULT_RF
+    if not math.isfinite(rf):
+        return an.DEFAULT_RF
+    return min(max(rf, 0.0), 0.25)
+
+
+# A ticker is 1–10 chars, starts with a letter, and may carry a class/exchange
+# suffix (BRK.B, BF-B, ^GSPC). Anything else is dropped so it can't reach a
+# yfinance call or collide with the '_'-joined cache key.
+_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.^-]{0,9}$")
+
+
 def parse_tickers(raw: str) -> list[str]:
-    """Normalize a free-text ticker string into a de-duplicated upper list."""
+    """Normalize a free-text ticker string into a de-duplicated, validated list."""
     if not raw:
         return []
     seen, out = set(), []
     for t in raw.replace(",", " ").upper().split():
         t = t.strip()
-        if t and t not in seen:
+        if t and t not in seen and _TICKER_RE.match(t):
             seen.add(t)
             out.append(t)
     return out
@@ -181,7 +208,7 @@ app.layout = dbc.Container(
                             placeholder="e.g. AAPL MSFT NVDA",
                             style={"backgroundColor": PLOT_BG, "color": TEXT, "borderColor": "#2a2a4a"},
                         ),
-                    ], md=6),
+                    ], md=4),
                     dbc.Col([
                         dbc.Label("Period", style={"color": TEXT}),
                         dbc.RadioItems(
@@ -203,6 +230,22 @@ app.layout = dbc.Container(
                                 {"label": "None", "value": "none"},
                             ],
                             value="SPY",
+                            style={"backgroundColor": PLOT_BG, "color": TEXT, "borderColor": "#2a2a4a"},
+                        ),
+                    ], md=2),
+                    dbc.Col([
+                        dbc.Label(
+                            html.Span("Risk-free % (0–25)",
+                                      title="Annual risk-free rate used for Sharpe, Sortino, and optimization"),
+                            style={"color": TEXT}),
+                        dbc.Input(
+                            id="rf-input",
+                            type="number",
+                            value=round(an.DEFAULT_RF * 100, 2),
+                            # step="any" and no min/max: browser validation would send
+                            # NaN (→ null → None) for any off-step or out-of-range entry,
+                            # silently reverting to DEFAULT_RF. parse_rf clamps instead.
+                            step="any",
                             style={"backgroundColor": PLOT_BG, "color": TEXT, "borderColor": "#2a2a4a"},
                         ),
                     ], md=2),
@@ -231,7 +274,7 @@ app.layout = dbc.Container(
 
 
 # ── Dashboard builder ─────────────────────────────────────────────────────────
-def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: list[str], weights: dict[str, float] | None = None, period: str = DEFAULT_PERIOD):
+def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: list[str], weights: dict[str, float] | None = None, period: str = DEFAULT_PERIOD, rf: float = an.DEFAULT_RF):
     rets = an.daily_returns(prices)
     cum_rets = an.cumulative_returns(prices)
 
@@ -240,14 +283,14 @@ def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: 
     else:
         weights = {t: max(weights.get(t, 0.0), 0.0) for t in tickers}
 
-    stats = an.summary_stats(prices, benchmark, weights=weights)
+    stats = an.summary_stats(prices, benchmark, rf=rf, weights=weights)
 
     port_ret = an.portfolio_returns(rets, weights)
     port_prices = (1 + port_ret).cumprod()
 
     # ── Metric cards ──────────────────────────────────────────────────────────
-    port_sharpe = an.sharpe_ratio(port_ret)
-    port_sortino = an.sortino_ratio(port_ret)
+    port_sharpe = an.sharpe_ratio(port_ret, rf)
+    port_sortino = an.sortino_ratio(port_ret, rf)
     port_vol = an.annualized_volatility(port_ret)
     port_dd = an.max_drawdown(port_prices)
     port_cagr = an.annualized_return(port_ret)
@@ -326,7 +369,7 @@ def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: 
     fig_vol.update_layout(**CHART_LAYOUT, title="30-Day Rolling Volatility (annualized)", yaxis_ticksuffix="%")
 
     # ── Rolling Sharpe ────────────────────────────────────────────────────────
-    roll_sharpe = an.rolling_sharpe(rets, window=63).dropna()
+    roll_sharpe = an.rolling_sharpe(rets, window=63, rf=rf).dropna()
     fig_rs = go.Figure()
     for i, col in enumerate(roll_sharpe.columns):
         fig_rs.add_trace(go.Scatter(
@@ -369,9 +412,9 @@ def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: 
     fig_ef = go.Figure()
     opt_summary = html.Div()
     if len(prices.columns) >= 2:
-        ef = an.efficient_frontier(rets, n_points=40)
-        max_sharpe = an.optimize_portfolio(rets, "sharpe")
-        min_vol = an.optimize_portfolio(rets, "min_vol")
+        ef = an.efficient_frontier(rets, n_points=40, rf=rf)
+        max_sharpe = an.optimize_portfolio(rets, "sharpe", rf=rf)
+        min_vol = an.optimize_portfolio(rets, "min_vol", rf=rf)
 
         if not ef.empty:
             fig_ef.add_trace(go.Scatter(
@@ -428,7 +471,8 @@ def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: 
                    className="mb-1", style={"color": TEXT, "fontSize": "0.85rem"}),
             html.Small(_weights_line(min_vol), className="text-muted d-block"),
             html.Hr(style={"borderColor": "#2a2a4a"}),
-            html.Small("Use the Max Sharpe / Min Vol buttons above to apply these weights.",
+            html.Small([f"Risk-free rate: {rf * 100:.2f}%. ",
+                        "Use the Max Sharpe / Min Vol buttons above to apply these weights."],
                        className="text-muted"),
         ]), style={"backgroundColor": CARD_BG, "border": "1px solid #2a2a4a", "height": "100%"})
     else:
@@ -575,10 +619,11 @@ def update_weight_inputs(ticker_input):
     Input("opt-minvol-btn", "n_clicks"),
     State("ticker-input", "value"),
     State("period-select", "value"),
+    State("rf-input", "value"),
     State({"type": "weight-input", "index": ALL}, "id"),
     prevent_initial_call=True,
 )
-def apply_optimization(n_equal, n_sharpe, n_minvol, ticker_input, period, weight_ids):
+def apply_optimization(n_equal, n_sharpe, n_minvol, ticker_input, period, rf_pct, weight_ids):
     if not weight_ids:
         raise PreventUpdate
     tickers = [wid["index"] for wid in weight_ids]
@@ -591,7 +636,7 @@ def apply_optimization(n_equal, n_sharpe, n_minvol, ticker_input, period, weight
         prices = dt.fetch_prices(tickers, period=period).dropna(axis=1, how="all")
         rets = an.daily_returns(prices)
         objective = "sharpe" if ctx.triggered_id == "opt-sharpe-btn" else "min_vol"
-        res = an.optimize_portfolio(rets, objective)
+        res = an.optimize_portfolio(rets, objective, rf=parse_rf(rf_pct))
     except Exception:
         return [no_update for _ in weight_ids]
 
@@ -605,14 +650,16 @@ def apply_optimization(n_equal, n_sharpe, n_minvol, ticker_input, period, weight
     State("ticker-input", "value"),
     State("period-select", "value"),
     State("benchmark-select", "value"),
+    State("rf-input", "value"),
     State({"type": "weight-input", "index": ALL}, "value"),
     State({"type": "weight-input", "index": ALL}, "id"),
     prevent_initial_call=False,
 )
-def update_dashboard(n_clicks, ticker_input, period, benchmark_sym, weight_values, weight_ids):
+def update_dashboard(n_clicks, ticker_input, period, benchmark_sym, rf_pct, weight_values, weight_ids):
     tickers = parse_tickers(ticker_input)
     if not tickers:
         raise PreventUpdate
+    rf = parse_rf(rf_pct)
 
     weights = (
         {wid["index"]: (v if v is not None and v >= 0 else 0.0) for wid, v in zip(weight_ids, weight_values)}
@@ -637,7 +684,7 @@ def update_dashboard(n_clicks, ticker_input, period, benchmark_sym, weight_value
                 bm_col.name = benchmark_sym
                 benchmark = bm_col.reindex(prices.index, method="ffill")
 
-        dashboard = build_dashboard(prices, benchmark, valid_tickers, weights, period=period)
+        dashboard = build_dashboard(prices, benchmark, valid_tickers, weights, period=period, rf=rf)
         if dropped:
             dashboard = html.Div([
                 dbc.Alert(f"No data for: {', '.join(dropped)} — they were excluded.",

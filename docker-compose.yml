@@ -1,0 +1,38 @@
+services:
+  portfolio-analyzer:
+    build: .
+    image: portfolio-analyzer:latest
+    container_name: portfolio-analyzer
+    restart: unless-stopped
+    ports:
+      - "8050:8050"
+    environment:
+      TZ: America/New_York
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8050/').read()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+  redis:
+    image: redis:8-alpine
+    container_name: portfolio-analyzer-redis
+    restart: unless-stopped
+    # No ports published: reachable only from the app over the compose network.
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

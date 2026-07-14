@@ -8,8 +8,10 @@ risk/return metrics — including **mean-variance portfolio optimization**.
 
 ## Features
 
-- **Live market data** via `yfinance`, cached in-memory with a short TTL.
+- **Live market data** via `yfinance`, cached in Redis with a short TTL — the cache
+  is shared across all workers, so one fetch serves every request.
 - **Custom weights** — set each holding's weight, or let the optimizer pick.
+- **Editable risk-free rate** — drives Sharpe, Sortino, and the optimizer live.
 - **Portfolio optimization** (long-only, via `scipy.optimize`):
   - **Max Sharpe** and **Min Volatility** portfolios.
   - **Efficient frontier** plotted against your holdings and current mix.
@@ -27,26 +29,42 @@ risk/return metrics — including **mean-variance portfolio optimization**.
 
 | File            | Responsibility                                              |
 | --------------- | ----------------------------------------------------------- |
-| `data.py`       | Market-data fetching (`yfinance`) with a TTL cache.         |
+| `data.py`       | Market-data fetching (`yfinance`) with a Redis TTL cache.   |
 | `analysis.py`   | Pure quant functions: returns, risk metrics, optimization.  |
 | `app.py`        | Dash UI — layout, figures, and callbacks.                   |
-| `tests/`        | Offline unit tests for `analysis.py` (deterministic).       |
+| `tests/`        | Offline unit tests for `analysis.py` and the cache layer.   |
 
 `analysis.py` has **no Dash or network dependencies**, so the math is unit-tested
 in isolation with seeded synthetic data.
 
 ## Getting started
 
+The app ships as a two-container stack (app + Redis):
+
 ```bash
-# 1. Install dependencies (a virtualenv is recommended)
-pip install -r requirements.txt
-
-# 2. Run the app
-python app.py
-
-# 3. Open the dashboard
-#    http://localhost:8050
+docker compose up -d --build     # start; http://localhost:8050
+docker compose logs -f           # live logs
+docker compose down              # stop
 ```
+
+To run it directly instead, without Docker:
+
+```bash
+pip install -r requirements.txt
+python app.py                    # http://localhost:8050
+```
+
+With no `REDIS_URL` set the cache falls back to an in-process dict, so the app runs
+fine standalone — you just lose cache sharing between workers.
+
+### Configuration
+
+| Variable    | Default | Effect                                                |
+| ----------- | ------- | ----------------------------------------------------- |
+| `REDIS_URL` | *unset* | Redis to cache into. Unset ⇒ in-memory fallback.      |
+| `HOST`      | `0.0.0.0` | Bind address (direct runs).                         |
+| `PORT`      | `8050`  | Bind port.                                            |
+| `DEBUG`     | *unset* | `1` enables the Dash dev server with hot reload.      |
 
 ### Usage
 
@@ -63,14 +81,17 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-The test suite is fully offline (no `yfinance` calls) and covers the return
-math, risk metrics, VaR/CVaR, beta, optimization (including weight-sum,
-long-only, and per-asset caps), the efficient frontier, and `summary_stats`.
+The test suite is fully offline — no `yfinance` calls and no running Redis. It covers
+the return math, risk metrics, VaR/CVaR, beta, optimization (including weight-sum,
+long-only, and per-asset caps), the efficient frontier, `summary_stats`, and the
+cache layer's serialization round-trip and degradation when Redis is unreachable.
 
 ## Notes & caveats
 
-- The risk-free rate is a fixed approximation (`DEFAULT_RF` in `analysis.py`);
-  adjust it there if you want current-market accuracy.
+- The risk-free rate defaults to `DEFAULT_RF` (`analysis.py`) but is editable in the
+  UI; the input is clamped to a sane `[0, 25%]` range.
+- Cache entries are serialized as **JSON, never pickle**, so a tampered or corrupted
+  entry cannot execute code when it is read back.
 - Optimization is **long-only** (`0 ≤ wᵢ ≤ max_weight`) and based on historical
   moments over the selected period — it is descriptive, **not** investment advice.
 - Market data is provided by Yahoo Finance via `yfinance` and may be delayed or
