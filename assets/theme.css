@@ -16,6 +16,31 @@ body {
   background: var(--pa-bg);
   color: var(--pa-text);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* dcc components (the ticker search bar and its popover) theme off these
+     tokens, which ship light-mode defaults on :root. dcc injects that rule at
+     runtime, after this file loads, so an equally-specific :root override here
+     would lose — setting them on body wins by inheritance instead, whatever the
+     source order. */
+  --Dash-Stroke-Strong: var(--pa-border);
+  --Dash-Stroke-Weak: rgba(255, 255, 255, 0.08);
+  --Dash-Fill-Interactive-Strong: var(--pa-accent);
+  --Dash-Fill-Interactive-Weak: rgba(233, 69, 96, 0.16);
+  --Dash-Fill-Inverse-Strong: var(--pa-plot);
+  --Dash-Text-Primary: var(--pa-text);
+  --Dash-Text-Strong: var(--pa-text);
+  --Dash-Text-Weak: var(--pa-muted);
+  --Dash-Text-Disabled: var(--pa-muted);
+  --Dash-Fill-Primary-Hover: rgba(255, 255, 255, 0.06);
+  --Dash-Fill-Primary-Active: rgba(255, 255, 255, 0.1);
+  --Dash-Fill-Disabled: rgba(255, 255, 255, 0.1);
+  --Dash-Shading-Strong: rgba(0, 0, 0, 0.55);
+  --Dash-Shading-Weak: rgba(0, 0, 0, 0.35);
+}
+
+/* Match the height of the sibling Period/Benchmark/Risk-free controls. */
+.pa-ticker-search .dash-dropdown-trigger {
+  min-height: 38px;
 }
 
 h1, h2, h3, h4, h5, h6 {

@@ -1,5 +1,6 @@
 """Portfolio Analyzer — Dash dashboard with real market data and statistical analysis."""
 
+import logging
 import math
 import re
 from pathlib import Path
@@ -14,6 +15,8 @@ from dash.exceptions import PreventUpdate
 
 import analysis as an
 import data as dt
+
+log = logging.getLogger(__name__)
 
 # ── App init ──────────────────────────────────────────────────────────────────
 # The same two faces the landing page uses, so / and /app/ read as one product.
@@ -187,13 +190,19 @@ def parse_rf(value) -> float:
 _TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.^-]{0,9}$")
 
 
-def parse_tickers(raw: str) -> list[str]:
-    """Normalize a free-text ticker string into a de-duplicated, validated list."""
+def parse_tickers(raw: str | list[str] | None) -> list[str]:
+    """Normalize a ticker selection into a de-duplicated, validated list.
+
+    Takes the search bar's list of symbols, or a free-text string (space- or
+    comma-separated) so a typed/pasted "AAPL, MSFT" still parses.
+    """
     if not raw:
         return []
+    if isinstance(raw, str):
+        raw = raw.replace(",", " ").split()
     seen, out = set(), []
-    for t in raw.replace(",", " ").upper().split():
-        t = t.strip()
+    for t in raw:
+        t = str(t).strip().upper()
         if t and t not in seen and _TICKER_RE.match(t):
             seen.add(t)
             out.append(t)
@@ -282,12 +291,17 @@ app.layout = dbc.Container(
             dbc.CardBody([
                 dbc.Row([
                     dbc.Col([
-                        dbc.Label("Tickers (space or comma separated)", style={"color": TEXT}),
-                        dbc.Input(
+                        dbc.Label("Tickers — search by symbol or company name", style={"color": TEXT}),
+                        dcc.Dropdown(
                             id="ticker-input",
-                            value=" ".join(DEFAULT_TICKERS),
-                            placeholder="e.g. AAPL MSFT NVDA",
-                            style={"backgroundColor": PLOT_BG, "color": TEXT, "borderColor": "#2a2a4a"},
+                            options=[{"label": t, "value": t} for t in DEFAULT_TICKERS],
+                            value=list(DEFAULT_TICKERS),
+                            multi=True,
+                            placeholder="Search e.g. NVDA or Nvidia…",
+                            # Keep Yahoo's relevance order; 'index' would re-sort
+                            # matches by the client-side index instead.
+                            search_order="original",
+                            className="pa-ticker-search",
                         ),
                     ], md=4),
                     dbc.Col([
@@ -651,6 +665,58 @@ def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: 
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
+@callback(
+    Output("ticker-input", "options"),
+    Input("ticker-input", "search_value"),
+    State("ticker-input", "value"),
+    prevent_initial_call=True,
+)
+def update_ticker_options(search_value, selected):
+    """Feed live symbol lookups into the ticker search bar as the user types."""
+    query = (search_value or "").strip()
+    selected = parse_tickers(selected)
+
+    # Selected symbols must stay in options or the dropdown renders the chosen
+    # values with no label.
+    options = [{"label": t, "value": t, "search": t} for t in selected]
+    if len(query) < 2:
+        return options
+
+    try:
+        matches = dt.search_tickers(query)
+    except Exception as exc:
+        log.warning("Ticker search failed for %r (%s)", query, exc)
+        matches = []
+
+    seen = set(selected)
+    for m in matches:
+        symbol = m["symbol"].upper()
+        # Skip anything parse_tickers would drop later (futures like ES=F), so
+        # the bar can't offer a symbol that silently vanishes on Analyze.
+        if symbol in seen or not _TICKER_RE.match(symbol):
+            continue
+        seen.add(symbol)
+        label = f"{symbol} · {m['name']}"
+        if m["exchange"]:
+            label = f"{label} ({m['exchange']})"
+        # The dropdown re-filters options client-side over value/label/search.
+        # Carrying the query in `search` keeps name hits whose label omits it
+        # ("google" → GOOGL · Alphabet Inc.) from being filtered straight back out.
+        options.append({
+            "label": label,
+            "value": symbol,
+            "search": f"{symbol} {m['name']} {query}",
+        })
+
+    # Escape hatch: let a symbol through when lookup found nothing (or is down)
+    # rather than making the bar a dead end.
+    typed = query.upper()
+    if len(options) == len(selected) and typed not in seen and _TICKER_RE.match(typed):
+        options.append({"label": f'Add "{typed}"', "value": typed, "search": f"{typed} {query}"})
+
+    return options
+
+
 @callback(
     Output("weights-section", "children"),
     Input("ticker-input", "value"),

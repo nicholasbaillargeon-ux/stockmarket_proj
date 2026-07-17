@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 
 CACHE_TTL = 300  # 5 minutes
 INFO_TTL = 600
+SEARCH_TTL = 3600  # symbol → company name mappings barely move
 KEY_PREFIX = "pa:"
 MEMORY_CACHE_MAX = 256  # bound the fallback dict so a dead Redis can't leak memory
 
@@ -101,7 +102,10 @@ def _memory_put(key: str, data) -> None:
 
 
 # ── Cache core ────────────────────────────────────────────────────────────────
-def _cached(key: str, fetch_fn, ttl: int = CACHE_TTL):
+def _cached(key: str, fetch_fn, ttl: int = CACHE_TTL, should_cache=None):
+    """Read-through cache. `should_cache(data)`, when given, gates the write —
+    use it to keep a fetcher's soft failure from being stored for the full TTL.
+    """
     key = KEY_PREFIX + key
     client = _redis()
     # Track liveness locally: a Redis op that fails must degrade to the in-memory
@@ -126,6 +130,9 @@ def _cached(key: str, fetch_fn, ttl: int = CACHE_TTL):
             return cached
 
     data = fetch_fn()
+
+    if should_cache is not None and not should_cache(data):
+        return data
 
     if redis_ok:
         try:
@@ -194,6 +201,37 @@ def fetch_info(ticker: str) -> dict:
         }
 
     return _cached(key, fetch, ttl=INFO_TTL)
+
+
+def search_tickers(query: str, limit: int = 8) -> list[dict]:
+    """Look up symbols by ticker or company name, best match first.
+
+    Returns dicts of symbol/name/exchange/type.
+    """
+    query = (query or "").strip()
+    if not query:
+        return []
+    key = f"search_{query.lower()}_{limit}"
+
+    def fetch():
+        quotes = yf.Search(query, max_results=limit).quotes
+        out = []
+        for q in quotes:
+            symbol = (q.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            out.append({
+                "symbol": symbol,
+                "name": q.get("shortname") or q.get("longname") or symbol,
+                "exchange": q.get("exchDisp") or "",
+                "type": q.get("quoteType") or "",
+            })
+        return out
+
+    # yfinance returns [] rather than raising when Yahoo throttles or errors, so
+    # caching an empty result would pin that query to "no matches" for the whole
+    # TTL. Only real hits are worth keeping.
+    return _cached(key, fetch, ttl=SEARCH_TTL, should_cache=bool)
 
 
 def fetch_ohlcv(ticker: str, period: str = "6mo") -> pd.DataFrame:

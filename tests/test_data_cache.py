@@ -102,6 +102,26 @@ def test_second_call_hits_cache(frame):
     pd.testing.assert_frame_equal(first, second)
 
 
+def test_should_cache_gate_skips_write_but_returns_data(_isolate_cache):
+    """A result the gate rejects is returned, but never stored — a throttled
+    ticker search comes back [] rather than raising, and pinning that for the
+    full TTL would leave the search bar dead for that query."""
+    results = [[], [{"symbol": "NVDA"}]]
+    fetched = []
+
+    def fetch():
+        fetched.append(1)
+        return results.pop(0)
+
+    assert dt._cached("s", fetch, ttl=60, should_cache=bool) == []
+    # The empty result was not cached, so the retry refetches and now gets a hit.
+    assert dt._cached("s", fetch, ttl=60, should_cache=bool) == [{"symbol": "NVDA"}]
+    assert len(fetched) == 2
+    # That hit passes the gate, so it *is* cached.
+    assert dt._cached("s", fetch, ttl=60, should_cache=bool) == [{"symbol": "NVDA"}]
+    assert len(fetched) == 2
+
+
 def test_clear_cache_drops_entries(_isolate_cache, frame):
     dt._cached("k", lambda: frame, ttl=60)
     dt.clear_cache()

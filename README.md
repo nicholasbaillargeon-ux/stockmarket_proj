@@ -68,7 +68,8 @@ fine standalone — you just lose cache sharing between workers.
 
 ### Usage
 
-1. Enter tickers (e.g. `AAPL MSFT NVDA`), pick a period and benchmark.
+1. Search the ticker bar by symbol or company name (`NVDA`, `Nvidia`) and pick
+   as many holdings as you like, then choose a period and benchmark.
 2. Set portfolio weights manually, or click **★ Max Sharpe** / **◆ Min Vol** to
    have the optimizer fill them in, then press **Analyze**.
 3. Inspect the efficient frontier — the ✕ marks your current mix relative to the

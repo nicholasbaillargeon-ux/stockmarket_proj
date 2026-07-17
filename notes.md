@@ -16,7 +16,7 @@ as three clean layers so the math is testable in isolation.
 
 ## 1. The idea
 
-You enter symbols like `AAPL MSFT NVDA`, choose a lookback window, a benchmark, and
+You search up symbols like `AAPL MSFT NVDA`, choose a lookback window, a benchmark, and
 a risk-free rate. The app pulls adjusted daily prices from Yahoo Finance, computes the
 standard suite of return and risk statistics for **every holding *and* the blended
 portfolio**, then solves for the portfolios that maximize risk-adjusted return or
@@ -24,7 +24,8 @@ minimize variance — plotting them against the full efficient frontier.
 
 **What goes in**
 
-- **Tickers** — any number, space- or comma-separated, de-duplicated automatically
+- **Tickers** — any number, searched by symbol or company name against Yahoo's
+  lookup endpoint, de-duplicated automatically
 - **Period** — 6M · 1Y · 2Y · 5Y lookback
 - **Benchmark** — SPY, QQQ, or none (drives the beta column)
 - **Risk-free %** — feeds Sharpe, Sortino, and the optimizer
