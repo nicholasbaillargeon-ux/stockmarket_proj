@@ -169,6 +169,44 @@ def app_header():
     )
 
 
+def portfolio_bar():
+    """Save / recall named portfolios, held in the browser's localStorage.
+
+    Nothing here reaches the server: the store below is per-browser, so saved
+    portfolios follow the device, not the user.
+    """
+    field = {"backgroundColor": PLOT_BG, "color": TEXT, "borderColor": BORDER}
+    return html.Div([
+        dbc.Row([
+            dbc.Col([
+                dbc.Label("Saved portfolios", style={"color": TEXT}),
+                dcc.Dropdown(
+                    id="portfolio-select",
+                    options=[],
+                    placeholder="Nothing saved yet",
+                    className="pa-dropdown",
+                ),
+            ], md=4),
+            dbc.Col([
+                dbc.Label("Save current as…", style={"color": TEXT}),
+                dbc.Input(id="portfolio-name", placeholder="e.g. Core holdings", style=field),
+            ], md=4),
+            dbc.Col([
+                dbc.Label(" ", style={"display": "block"}),
+                dbc.Button("Save", id="save-portfolio-btn", color="secondary",
+                           outline=True, n_clicks=0, className="w-100"),
+            ], md=2),
+            dbc.Col([
+                dbc.Label(" ", style={"display": "block"}),
+                dbc.Button("Delete", id="delete-portfolio-btn", color="secondary",
+                           outline=True, n_clicks=0, className="w-100"),
+            ], md=2),
+        ], className="g-2"),
+        html.Small(id="portfolio-status", className="text-muted mt-1",
+                   style={"display": "block"}),
+    ])
+
+
 def parse_rf(value) -> float:
     """Convert the risk-free % input to a decimal rate, clamped to [0, 0.25].
 
@@ -289,6 +327,8 @@ app.layout = dbc.Container(
         # Controls
         dbc.Card(
             dbc.CardBody([
+                portfolio_bar(),
+                html.Hr(style={"borderColor": BORDER, "margin": "16px 0"}),
                 dbc.Row([
                     dbc.Col([
                         dbc.Label("Tickers — search by symbol or company name", style={"color": TEXT}),
@@ -301,7 +341,7 @@ app.layout = dbc.Container(
                             # Keep Yahoo's relevance order; 'index' would re-sort
                             # matches by the client-side index instead.
                             search_order="original",
-                            className="pa-ticker-search",
+                            className="pa-dropdown",
                         ),
                     ], md=4),
                     dbc.Col([
@@ -364,6 +404,11 @@ app.layout = dbc.Container(
         # Store for processed data
         dcc.Store(id="prices-store"),
         dcc.Store(id="tickers-store"),
+
+        # Saved portfolios: {name: {tickers, weights, period, benchmark, rf}}.
+        # storage_type="local" persists to localStorage, so this survives a
+        # reload and a restart — it is the only state in the app that does.
+        dcc.Store(id="portfolios-store", storage_type="local"),
     ],
 )
 
@@ -666,6 +711,104 @@ def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 @callback(
+    Output("portfolios-store", "data"),
+    Output("portfolio-select", "value"),
+    Output("portfolio-name", "value"),
+    Output("portfolio-status", "children"),
+    Input("save-portfolio-btn", "n_clicks"),
+    Input("delete-portfolio-btn", "n_clicks"),
+    State("portfolio-name", "value"),
+    State("portfolio-select", "value"),
+    State("ticker-input", "value"),
+    State("period-select", "value"),
+    State("benchmark-select", "value"),
+    State("rf-input", "value"),
+    State({"type": "weight-input", "index": ALL}, "value"),
+    State({"type": "weight-input", "index": ALL}, "id"),
+    State("portfolios-store", "data"),
+    prevent_initial_call=True,
+)
+def save_or_delete_portfolio(n_save, n_delete, name, selected, ticker_input, period,
+                             benchmark, rf_pct, weight_values, weight_ids, saved):
+    """Write the current setup to localStorage under a name, or drop a saved one."""
+    saved = dict(saved or {})
+
+    if ctx.triggered_id == "delete-portfolio-btn":
+        if not selected or selected not in saved:
+            return no_update, no_update, no_update, "Pick a saved portfolio to delete."
+        saved.pop(selected)
+        return saved, None, no_update, f"Deleted “{selected}”."
+
+    name = (name or "").strip()
+    if not name:
+        return no_update, no_update, no_update, "Give the portfolio a name to save it."
+    tickers = parse_tickers(ticker_input)
+    if not tickers:
+        return no_update, no_update, no_update, "Add at least one ticker to save."
+
+    existed = name in saved
+    # Store the raw rf percentage, not parse_rf's decimal, so it round-trips
+    # straight back into the input it came from.
+    saved[name] = {
+        "tickers": tickers,
+        "weights": {
+            wid["index"]: v
+            for wid, v in zip(weight_ids, weight_values)
+            if wid["index"] in tickers and v is not None and v >= 0
+        },
+        "period": period,
+        "benchmark": benchmark,
+        "rf": rf_pct,
+    }
+    verb = "Updated" if existed else "Saved"
+    return saved, name, "", f"{verb} “{name}” · {len(tickers)} holdings."
+
+
+@callback(
+    Output("portfolio-select", "options"),
+    Input("portfolios-store", "data"),
+)
+def list_saved_portfolios(saved):
+    """Mirror localStorage into the recall dropdown, including on first paint."""
+    saved = saved or {}
+    return [
+        {"label": f"{name} · {len(saved[name].get('tickers') or [])} holdings", "value": name}
+        for name in sorted(saved, key=str.lower)
+    ]
+
+
+@callback(
+    Output("ticker-input", "value"),
+    Output("ticker-input", "options", allow_duplicate=True),
+    Output("period-select", "value"),
+    Output("benchmark-select", "value"),
+    Output("rf-input", "value"),
+    Input("portfolio-select", "value"),
+    State("portfolios-store", "data"),
+    prevent_initial_call=True,
+)
+def load_portfolio(name, saved):
+    """Recall a saved portfolio into the controls. Weights ride along via
+    update_weight_inputs, which reads the same record off the selection."""
+    record = (saved or {}).get(name or "")
+    if not record:
+        raise PreventUpdate
+    tickers = parse_tickers(record.get("tickers"))
+    if not tickers:
+        raise PreventUpdate
+    # The search bar only knows the symbols it last searched, so re-seed options
+    # or the recalled holdings would render as unlabelled chips.
+    options = [{"label": t, "value": t, "search": t} for t in tickers]
+    return (
+        tickers,
+        options,
+        record.get("period") or DEFAULT_PERIOD,
+        record.get("benchmark") or "SPY",
+        record.get("rf", round(an.DEFAULT_RF * 100, 2)),
+    )
+
+
+@callback(
     Output("ticker-input", "options"),
     Input("ticker-input", "search_value"),
     State("ticker-input", "value"),
@@ -720,12 +863,23 @@ def update_ticker_options(search_value, selected):
 @callback(
     Output("weights-section", "children"),
     Input("ticker-input", "value"),
+    State("portfolio-select", "value"),
+    State("portfolios-store", "data"),
 )
-def update_weight_inputs(ticker_input):
+def update_weight_inputs(ticker_input, selected, saved):
     tickers = parse_tickers(ticker_input)
     if not tickers:
-        return dbc.Alert("Enter one or more ticker symbols to begin.", color="secondary",
+        return dbc.Alert("Search for one or more tickers to begin.", color="secondary",
                          className="mb-0 py-2")
+
+    # A recalled portfolio brings its weights back with it. Reading them off the
+    # selection here — rather than having load_portfolio push them into a store —
+    # keeps this free of any ordering assumption: the selection is already
+    # committed by the time the recalled tickers arrive on the Input above.
+    record = (saved or {}).get(selected or "") or {}
+    stored = record.get("weights") or {}
+    if parse_tickers(record.get("tickers")) != tickers:
+        stored = {}  # holdings edited since the save — that split no longer applies
 
     default_weight = round(100 / len(tickers), 1)
     cols = [
@@ -734,7 +888,7 @@ def update_weight_inputs(ticker_input):
             dbc.Input(
                 id={"type": "weight-input", "index": ticker},
                 type="number",
-                value=default_weight,
+                value=stored.get(ticker, default_weight),
                 min=0,
                 max=100,
                 step=0.1,

@@ -77,6 +77,8 @@ Grouped by responsibility. Tags mark what was **[new]**, **[fixed]**, or **[wire
 ### IV. Interface & delivery (`app.py`)
 
 - **Dynamic weights** — per-ticker inputs generated from the ticker box
+- **Ticker search** — symbol or company name, resolved against Yahoo's lookup **[new]**
+- **Saved portfolios** — named setups recalled from `localStorage` **[new]**
 - **Optimize buttons** — Equal / Max Sharpe / Min Vol fill in the weights **[new]**
 - **CSV export** — download the stats table **[new]**
 - **Dark theme + tooltips** — Bootstrap DARKLY, hover explanations on every metric
@@ -161,9 +163,18 @@ standard deviation.
   blank risk-free field — each path is handled: the frontier hides below two assets, the
   beta column self-labels, and `parse_rf` clamps to a sane `[0, 25%]` range.
 
-- **Cache the network, not the math.** The TTL cache in `data.py` is the only state.
-  Analytics are recomputed on every Analyze — cheap, and it keeps results honest when
-  inputs change.
+- **Cache the network, not the math.** The TTL cache in `data.py` is the only state the
+  server keeps. Analytics are recomputed on every Analyze — cheap, and it keeps results
+  honest when inputs change.
+
+- **Saved portfolios stay on the client.** They live in a `storage_type="local"` store,
+  i.e. the browser's `localStorage` — no accounts, no database, nothing to migrate, and
+  no server-side state to contradict the point above. The trade is that they follow the
+  device rather than the person. Recalled weights are read back off the *selection*
+  (`portfolio-select` + the store) inside `update_weight_inputs`, rather than being
+  pushed into a staging store by the load callback. Both would work, but the selection is
+  already committed before the recalled tickers arrive, so this version depends on no
+  ordering between two callbacks racing to populate the same inputs.
 
 - **The cache lives outside the process.** Under gunicorn the in-memory dict meant each
   worker kept its own copy and re-fetched the same ticker. It now lives in Redis, so a

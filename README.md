@@ -11,6 +11,8 @@ risk/return metrics — including **mean-variance portfolio optimization**.
 - **Live market data** via `yfinance`, cached in Redis with a short TTL — the cache
   is shared across all workers, so one fetch serves every request.
 - **Custom weights** — set each holding's weight, or let the optimizer pick.
+- **Saved portfolios** — name a setup and recall it later, holdings and weights
+  intact. Kept in the browser's `localStorage`, so they stay on that device.
 - **Editable risk-free rate** — drives Sharpe, Sortino, and the optimizer live.
 - **Portfolio optimization** (long-only, via `scipy.optimize`):
   - **Max Sharpe** and **Min Volatility** portfolios.
@@ -74,6 +76,8 @@ fine standalone — you just lose cache sharing between workers.
    have the optimizer fill them in, then press **Analyze**.
 3. Inspect the efficient frontier — the ✕ marks your current mix relative to the
    optimal frontier and the individual assets.
+4. Name a setup and hit **Save** to keep it. Pick it from **Saved portfolios**
+   to bring the holdings, weights, period, benchmark, and risk-free rate back.
 
 ## Development
 

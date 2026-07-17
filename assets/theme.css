@@ -39,7 +39,7 @@ body {
 }
 
 /* Match the height of the sibling Period/Benchmark/Risk-free controls. */
-.pa-ticker-search .dash-dropdown-trigger {
+.pa-dropdown .dash-dropdown-trigger {
   min-height: 38px;
 }
 
