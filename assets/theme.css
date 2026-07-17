@@ -1,0 +1,56 @@
+/* Dashboard chrome, matched to landing/index.html.
+   Token values are duplicated in app.py (BG/CARD_BG/ACCENT/...) — change both together.
+   Dash appends assets/ after external_stylesheets, so this lands on top of DARKLY. */
+
+:root {
+  --pa-bg: #1a1a2e;
+  --pa-card: #16213e;
+  --pa-plot: #0f3460;
+  --pa-accent: #e94560;
+  --pa-text: #eaeaea;
+  --pa-muted: #98a1bb;
+  --pa-border: #2a2a4a;
+}
+
+body {
+  background: var(--pa-bg);
+  color: var(--pa-text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--pa-accent);
+}
+
+.text-muted {
+  color: var(--pa-muted) !important;
+}
+
+/* Figures read as data, in the landing page's mono face. */
+.card h5,
+.dash-cell-value,
+.dash-table-container .dash-spreadsheet td {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* The landing page's pill button, for the primary action. */
+#analyze-btn {
+  background: var(--pa-accent);
+  border-color: var(--pa-accent);
+  color: #0d0f1f;
+  font-weight: 600;
+}
+
+#analyze-btn:hover {
+  filter: brightness(1.08);
+  color: #0d0f1f;
+}

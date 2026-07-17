@@ -2,11 +2,12 @@
 
 import math
 import re
+from pathlib import Path
 
+import flask
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import dash_bootstrap_components as dbc
 from dash import ALL, Dash, Input, Output, State, callback, ctx, dcc, html, no_update, dash_table
 from dash.exceptions import PreventUpdate
@@ -15,36 +16,79 @@ import analysis as an
 import data as dt
 
 # ── App init ──────────────────────────────────────────────────────────────────
+# The same two faces the landing page uses, so / and /app/ read as one product.
+GOOGLE_FONTS = (
+    "https://fonts.googleapis.com/css2"
+    "?family=Inter:wght@400;500;600;700"
+    "&family=JetBrains+Mono:wght@400;500;600&display=swap"
+)
+
+# The dashboard lives under /app/ so the marketing landing page can own /.
 app = Dash(
     __name__,
-    external_stylesheets=[dbc.themes.DARKLY],
+    external_stylesheets=[dbc.themes.DARKLY, GOOGLE_FONTS],
     title="Portfolio Analyzer",
     suppress_callback_exceptions=True,
+    url_base_pathname="/app/",
 )
 
 # WSGI entry point for gunicorn (`gunicorn app:server`)
 server = app.server
 
+LANDING_DIR = Path(__file__).parent / "landing"
+
+
+@server.route("/")
+def landing():
+    return flask.send_from_directory(LANDING_DIR, "index.html")
+
+
 DEFAULT_TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]
 DEFAULT_PERIOD = "1y"
 PERIODS = {"6M": "6mo", "1Y": "1y", "2Y": "2y", "5Y": "5y"}
 
+REPO_URL = "https://github.com/nicholasbaillargeon-ux/stockmarket_proj"
+
 # ── Color palette ─────────────────────────────────────────────────────────────
-COLORS = px.colors.qualitative.Plotly
+# Shared with landing/index.html — change both together.
 BG = "#1a1a2e"
 CARD_BG = "#16213e"
 PLOT_BG = "#0f3460"
 ACCENT = "#e94560"
 TEXT = "#eaeaea"
+MUTED = "#98a1bb"
+BORDER = "#2a2a4a"
+
+# Reserved status colors: never reused as a series hue.
+UP = "#2ecc71"
+DOWN = ACCENT
+
+FONT_SANS = "Inter, system-ui, -apple-system, sans-serif"
+FONT_MONO = "'JetBrains Mono', ui-monospace, monospace"
+
+# Categorical series hues, applied in this fixed order. Chosen in OKLCH to clear
+# the reserved red/green status zones, then checked against the PLOT_BG surface:
+# adjacent worst ΔE 42.6 (lines/bars), all-pairs worst 9.2 under deuteranopia —
+# the floor band, which the frontier scatter offsets with a direct label per point.
+COLORS = [
+    "#c06f91",  # rose
+    "#727ef1",  # violet
+    "#008f84",  # teal
+    "#3392db",  # blue
+    "#d86800",  # orange
+    "#00a2cd",  # cyan
+    "#8b933e",  # olive
+    "#a876b7",  # magenta
+]
 
 CHART_LAYOUT = dict(
     paper_bgcolor=CARD_BG,
     plot_bgcolor=PLOT_BG,
-    font=dict(color=TEXT, size=12),
+    font=dict(color=TEXT, size=12, family=FONT_SANS),
     margin=dict(l=50, r=20, t=40, b=40),
     legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0),
-    xaxis=dict(gridcolor="#2a2a4a", showgrid=True),
-    yaxis=dict(gridcolor="#2a2a4a", showgrid=True),
+    xaxis=dict(gridcolor=BORDER, showgrid=True),
+    yaxis=dict(gridcolor=BORDER, showgrid=True),
 )
 
 
@@ -78,6 +122,47 @@ def metric_card(title, value, color="#eaeaea", tooltip=None):
     return dbc.Card(
         dbc.CardBody(body),
         style={"backgroundColor": CARD_BG, "border": "1px solid #2a2a4a"},
+    )
+
+
+def app_header():
+    """The landing page's header, rebuilt in Dash so / and /app/ share one chrome.
+
+    The wordmark links home; the diamond mark and spacing mirror landing/index.html.
+    """
+    nav_link = {"color": MUTED, "textDecoration": "none", "fontSize": "14px"}
+    return html.Header(
+        style={
+            "display": "flex",
+            "alignItems": "center",
+            "justifyContent": "space-between",
+            "padding": "18px 8px",
+            "marginBottom": "22px",
+            "borderBottom": f"1px solid {BORDER}",
+        },
+        children=[
+            html.A(
+                href="/",
+                style={"display": "flex", "alignItems": "center", "gap": "12px",
+                       "textDecoration": "none", "color": TEXT},
+                children=[
+                    html.Div(style={"width": "12px", "height": "12px", "background": ACCENT,
+                                    "borderRadius": "2px", "transform": "rotate(45deg)"}),
+                    html.Span("Portfolio Analyzer",
+                              style={"fontWeight": 700, "letterSpacing": "-.01em", "fontSize": "17px"}),
+                ],
+            ),
+            html.Nav(
+                style={"display": "flex", "alignItems": "center", "gap": "28px"},
+                children=[
+                    html.Span("Real-time market data · Statistical risk analysis",
+                              style={"color": MUTED, "fontSize": "12px",
+                                     "letterSpacing": ".04em", "fontFamily": FONT_MONO}),
+                    html.A("← Home", href="/", style=nav_link),
+                    html.A("GitHub", href=REPO_URL, style=nav_link),
+                ],
+            ),
+        ],
     )
 
 
@@ -128,8 +213,8 @@ def build_candle_figure(ticker: str, period: str) -> go.Figure:
     fig.add_trace(go.Candlestick(
         x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
         name=ticker,
-        increasing=dict(line=dict(color="#2ecc71"), fillcolor="#2ecc71"),
-        decreasing=dict(line=dict(color=ACCENT), fillcolor=ACCENT),
+        increasing=dict(line=dict(color=UP), fillcolor=UP),
+        decreasing=dict(line=dict(color=DOWN), fillcolor=DOWN),
         hovertext=ticker,
     ))
     for w, c in [(20, "#f39c12"), (50, "#9b59b6")]:
@@ -140,7 +225,7 @@ def build_candle_figure(ticker: str, period: str) -> go.Figure:
                 line=dict(color=c, width=1.2, dash="dot"),
                 hovertemplate=f"{w}-day MA: %{{y:.2f}}<extra></extra>",
             ))
-    colors = ["#2ecc71" if c >= o else ACCENT for o, c in zip(df["Open"], df["Close"])]
+    colors = [UP if c >= o else DOWN for o, c in zip(df["Open"], df["Close"])]
     fig.add_trace(go.Bar(
         x=df.index, y=df["Volume"], name="Volume",
         marker_color=colors, opacity=0.4, yaxis="y2",
@@ -190,11 +275,7 @@ app.layout = dbc.Container(
     fluid=True,
     style={"backgroundColor": BG, "minHeight": "100vh", "padding": "20px"},
     children=[
-        # Header
-        dbc.Row([
-            dbc.Col(html.H2("Portfolio Analyzer", style={"color": ACCENT, "fontWeight": "bold"}), width="auto"),
-            dbc.Col(html.P("Real-time market data · Statistical risk analysis", className="text-muted mt-2"), width="auto"),
-        ], align="center", className="mb-3"),
+        app_header(),
 
         # Controls
         dbc.Card(
