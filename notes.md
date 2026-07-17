@@ -8,8 +8,8 @@ as three clean layers so the math is testable in isolation.
 |---|---|
 | **Stack** | Dash · Plotly · pandas · NumPy · SciPy · yfinance · Redis |
 | **Python** | 3.14 |
-| **Size** | ~1,120 LOC across `data.py` (163) · `analysis.py` (238) · `app.py` (721) |
-| **Tests** | 41 passing (`pytest -q`), fully offline |
+| **Size** | ~1,520 LOC across `data.py` (246) · `analysis.py` (238) · `app.py` (1,037) |
+| **Tests** | 62 passing (`pytest -q`), fully offline |
 | **Served** | `0.0.0.0:8050` (plain HTTP) — gunicorn in Docker, app + Redis |
 
 ---
@@ -147,7 +147,7 @@ standard deviation.
 ## 5. Decisions worth calling out
 
 - **Pure core, testable in the dark.** Because `analysis.py` imports no Dash and no
-  network, all 41 tests run offline against seeded synthetic prices — the optimizer,
+  network, all 62 tests run offline against seeded synthetic prices — the optimizer,
   VaR, and beta are verified without ever calling Yahoo, and the cache layer is
   verified without a running Redis.
 
