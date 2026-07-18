@@ -161,27 +161,48 @@ def clear_cache() -> None:
 
 
 # ── Fetchers ──────────────────────────────────────────────────────────────────
+def _download_closes(syms: list[str], period: str) -> pd.DataFrame:
+    """Adjusted-close DataFrame (columns = symbols) for a yfinance download."""
+    raw = yf.download(syms, period=period, auto_adjust=True, progress=False)
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+    if isinstance(raw.columns, pd.MultiIndex):
+        return raw["Close"]
+    closes = raw[["Close"]] if "Close" in raw.columns else raw
+    if len(syms) == 1 and closes.shape[1] == 1:
+        closes = closes.copy()
+        closes.columns = list(syms)
+    return closes
+
+
 def fetch_prices(tickers: list[str], period: str = "1y") -> pd.DataFrame:
     """Return daily adjusted close prices as a DataFrame (columns = tickers)."""
     key = f"prices_{'_'.join(sorted(tickers))}_{period}"
 
-    def fetch():
-        raw = yf.download(
-            tickers,
-            period=period,
-            auto_adjust=True,
-            progress=False,
-        )
-        if isinstance(raw.columns, pd.MultiIndex):
-            closes = raw["Close"]
-        else:
-            closes = raw[["Close"]] if "Close" in raw.columns else raw
-            if len(tickers) == 1:
-                closes.columns = tickers
-        closes = closes.dropna(how="all")
-        return closes
+    def _missing(df: pd.DataFrame) -> list[str]:
+        return [t for t in tickers if t not in df.columns or df[t].notna().sum() == 0]
 
-    return _cached(key, fetch)
+    def fetch():
+        closes = _download_closes(tickers, period)
+        # A batch download from Yahoo intermittently returns an all-NaN column
+        # for a symbol that actually has data (rate limiting — often triggered by
+        # the request burst on first load). Retry those symbols one at a time so a
+        # transient miss doesn't silently drop a ticker (e.g. NVDA) as "no data".
+        for t in _missing(closes):
+            try:
+                one = _download_closes([t], period)
+            except Exception as exc:  # noqa: BLE001 — never let one symbol sink the batch
+                log.warning("retry fetch failed for %s (%s)", t, exc)
+                continue
+            if t in one.columns and one[t].notna().sum() > 0:
+                closes = closes.drop(columns=[t], errors="ignore").join(one[[t]], how="outer")
+        # Preserve the requested order; drop rows that are all-NaN across tickers.
+        closes = closes.reindex(columns=[t for t in tickers if t in closes.columns])
+        return closes.dropna(how="all")
+
+    # Don't cache a result still missing a requested ticker: caching a transient
+    # Yahoo miss would pin that ticker to "no data" for the whole TTL.
+    return _cached(key, fetch, should_cache=lambda df: not _missing(df))
 
 
 def fetch_info(ticker: str) -> dict:
