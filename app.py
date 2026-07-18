@@ -398,13 +398,12 @@ app.layout = dbc.Container(
                             # NaN (→ null → None) for any off-step or out-of-range entry,
                             # silently reverting to DEFAULT_RF. parse_rf clamps instead.
                             step="any",
+                            # The dashboard auto-updates on change; debounce so it
+                            # fires once the value is committed, not per keystroke.
+                            debounce=True,
                             style={"backgroundColor": PLOT_BG, "color": TEXT, "borderColor": "#2a2a4a"},
                         ),
                     ], md=2),
-                    dbc.Col([
-                        dbc.Label(" ", style={"display": "block"}),
-                        dbc.Button("Analyze", id="analyze-btn", color="danger", n_clicks=0, className="w-100"),
-                    ], md=1),
                 ]),
                 html.Div(id="weights-section", className="mt-3"),
             ]),
@@ -909,6 +908,8 @@ def update_weight_inputs(ticker_input, selected, saved):
                 min=0,
                 max=100,
                 step=0.1,
+                # Auto-update fires on commit (blur/Enter), not each keystroke.
+                debounce=True,
                 style={"backgroundColor": PLOT_BG, "color": TEXT, "borderColor": "#2a2a4a"},
             ),
         ], xs=6, sm=4, md=2)
@@ -964,16 +965,16 @@ def apply_optimization(n_equal, n_sharpe, n_minvol, ticker_input, period, rf_pct
 @callback(
     Output("dashboard-content", "children"),
     Output("tickers-store", "data"),
-    Input("analyze-btn", "n_clicks"),
-    State("ticker-input", "value"),
-    State("period-select", "value"),
-    State("benchmark-select", "value"),
-    State("rf-input", "value"),
-    State({"type": "weight-input", "index": ALL}, "value"),
+    # Auto-update: any control change re-runs the analysis (no Analyze button).
+    Input("ticker-input", "value"),
+    Input("period-select", "value"),
+    Input("benchmark-select", "value"),
+    Input("rf-input", "value"),
+    Input({"type": "weight-input", "index": ALL}, "value"),
     State({"type": "weight-input", "index": ALL}, "id"),
     prevent_initial_call=False,
 )
-def update_dashboard(n_clicks, ticker_input, period, benchmark_sym, rf_pct, weight_values, weight_ids):
+def update_dashboard(ticker_input, period, benchmark_sym, rf_pct, weight_values, weight_ids):
     tickers = parse_tickers(ticker_input)
     if not tickers:
         raise PreventUpdate
