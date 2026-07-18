@@ -746,9 +746,17 @@ def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: 
         dbc.Card(
             dbc.CardBody([
                 stock_selector,
-                html.Div(build_fundamentals(default_stock), id="fundamentals-panel"),
-                dcc.Graph(id="candle-chart", figure=build_candle_figure(default_stock, period),
-                          config={"displayModeBar": "hover"}),
+                dcc.Loading(
+                    # Selecting a stock re-fetches fundamentals + candles from
+                    # yfinance (a slow live API); show a spinner over the stale
+                    # panels rather than leaving them looking frozen.
+                    type="default",
+                    children=[
+                        html.Div(build_fundamentals(default_stock), id="fundamentals-panel"),
+                        dcc.Graph(id="candle-chart", figure=build_candle_figure(default_stock, period),
+                                  config={"displayModeBar": "hover"}),
+                    ],
+                ),
             ]),
             style={"backgroundColor": CARD_BG, "border": "1px solid #2a2a4a"},
         ),
