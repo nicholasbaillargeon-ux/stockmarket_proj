@@ -462,6 +462,15 @@ app.layout = dbc.Container(
             id="loading",
             type="circle",
             color=ACCENT,
+            # By default Loading blanks its children to visibility:hidden while a
+            # callback is in flight. The whole dashboard lives in here, so
+            # removing a single ticker blanked the entire page for ~780ms — read
+            # as a full-page flash. overlay_style keeps the previous dashboard on
+            # screen, dimmed, while the new one is computed, and delay_show stops
+            # the spinner appearing at all for updates that finish quickly.
+            delay_show=250,
+            overlay_style={"visibility": "visible", "opacity": 0.45,
+                           "transition": "opacity 0.15s ease-in-out"},
             children=html.Div(id="dashboard-content"),
         ),
 
