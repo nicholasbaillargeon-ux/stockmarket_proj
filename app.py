@@ -51,6 +51,39 @@ server = app.server
 
 LANDING_DIR = Path(__file__).parent / "landing"
 
+# A floating "← Showcase" link back to the portfolio showcase at "/". Injected
+# only when mounted behind the combined deployment (BASE != "/"), where a
+# showcase actually owns the root. The landing page rebuilds its DOM and
+# replaces <html> after load, dropping appended nodes, so the link re-asserts
+# itself on an interval until it sticks.
+_SHOWCASE_LINK = """
+<script>
+(function () {
+  function inject() {
+    if (document.getElementById('__showcase_link')) return;
+    var body = document.body;
+    if (!body) return;
+    var a = document.createElement('a');
+    a.id = '__showcase_link';
+    a.href = '/';
+    a.textContent = '← Showcase';
+    a.title = 'Back to the showcase';
+    a.setAttribute('style',
+      'position:fixed;bottom:16px;left:16px;z-index:2147483647;' +
+      'font:600 13px/1 -apple-system,BlinkMacSystemFont,sans-serif;' +
+      'color:#12332a;background:rgba(244,239,227,.94);padding:9px 15px;' +
+      'border:1px solid rgba(18,51,42,.25);border-radius:999px;' +
+      'text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.18)');
+    body.appendChild(a);
+  }
+  inject();
+  setInterval(inject, 400);
+  document.addEventListener('DOMContentLoaded', inject);
+  window.addEventListener('load', inject);
+})();
+</script>
+"""
+
 
 @server.route(BASE)
 def landing():
@@ -60,6 +93,7 @@ def landing():
         # rewrite it to the mounted path so the call-to-action works behind
         # the reverse proxy.
         html_text = html_text.replace("/app/", APP_PATH)
+        html_text += _SHOWCASE_LINK
     return flask.Response(html_text, mimetype="text/html")
 
 
