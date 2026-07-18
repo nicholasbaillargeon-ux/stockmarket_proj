@@ -242,17 +242,22 @@ def portfolio_bar():
                 dbc.Label("Save current as…", style={"color": TEXT}),
                 dbc.Input(id="portfolio-name", placeholder="e.g. Core holdings", style=field),
             ], md=4),
-            dbc.Col([
-                dbc.Label(" ", style={"display": "block"}),
+            # Both buttons start disabled and arm from their own precondition --
+            # Save on a non-blank name, Delete on a selected portfolio. theme.css
+            # paints the enabled Save in the accent colour, so it visibly lights
+            # up as soon as there is something to save under.
+            dbc.Col(
                 dbc.Button("Save", id="save-portfolio-btn", color="secondary",
-                           outline=True, n_clicks=0, className="w-100"),
-            ], md=2),
-            dbc.Col([
-                dbc.Label(" ", style={"display": "block"}),
+                           outline=True, n_clicks=0, className="w-100", disabled=True),
+                md=2),
+            dbc.Col(
                 dbc.Button("Delete", id="delete-portfolio-btn", color="secondary",
-                           outline=True, n_clicks=0, className="w-100"),
-            ], md=2),
-        ], className="g-2"),
+                           outline=True, n_clicks=0, className="w-100", disabled=True),
+                md=2),
+            # align="end" bottom-aligns the buttons against the taller labelled
+            # fields; the previous empty dbc.Label(" ") spacers only approximated
+            # a label's height, leaving the buttons a couple of px out.
+        ], className="g-2", align="end"),
         html.Small(id="portfolio-status", className="text-muted mt-1",
                    style={"display": "block"}),
     ])
@@ -406,6 +411,8 @@ app.layout = dbc.Container(
                             inputCheckedClassName="text-danger",
                         ),
                     ], md=3),
+                    # 4+3+3+2 = 12. This row used to sum to 11, leaving a dead
+                    # column of whitespace at the right that no control filled.
                     dbc.Col([
                         dbc.Label("Benchmark", style={"color": TEXT}),
                         dbc.Select(
@@ -418,7 +425,7 @@ app.layout = dbc.Container(
                             value="SPY",
                             style={"backgroundColor": PLOT_BG, "color": TEXT, "borderColor": "#2a2a4a"},
                         ),
-                    ], md=2),
+                    ], md=3),
                     dbc.Col([
                         dbc.Label(
                             html.Span("Risk-free % (0–25)",
@@ -820,6 +827,30 @@ def save_or_delete_portfolio(n_save, n_delete, name, selected, ticker_input, per
     }
     verb = "Updated" if existed else "Saved"
     return saved, name, "", f"{verb} “{name}” · {len(tickers)} holdings."
+
+
+@callback(
+    Output("save-portfolio-btn", "disabled"),
+    Input("portfolio-name", "value"),
+)
+def arm_save_button(name):
+    """Enable Save the moment the name field holds something usable.
+
+    dbc.Input reports every keystroke (no debounce here), so the button lights
+    up as the user types rather than on blur. Whitespace alone doesn't count --
+    that matches the guard in save_or_delete_portfolio, which stays in place as
+    a backstop since a disabled button is a UI affordance, not a real check.
+    """
+    return not (name or "").strip()
+
+
+@callback(
+    Output("delete-portfolio-btn", "disabled"),
+    Input("portfolio-select", "value"),
+)
+def arm_delete_button(selected):
+    """Delete only means something once a saved portfolio is picked."""
+    return not selected
 
 
 @callback(
