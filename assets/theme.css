@@ -116,6 +116,36 @@ a:hover {
   color: #0d0f1f;
 }
 
+/* Shown by dcc.Loading while the dashboard rebuilds. Fixed to the viewport so
+   it is visible wherever the page is scrolled — the default spinner sat in the
+   middle of a ~3000px container, i.e. off-screen. The dashboard underneath
+   stays readable but dimmed, so this is what marks those numbers as stale. */
+.pa-updating {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  background: var(--pa-accent);
+  color: #0d0f1f;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 7px 16px;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  animation: pa-pulse 1s ease-in-out infinite;
+}
+
+@keyframes pa-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pa-updating { animation: none; }
+}
+
 /* ConfirmDialogProvider wraps Delete in a div of its own, which would otherwise
    shrink-wrap and undo the button's w-100 and the row's baseline alignment. */
 #delete-portfolio-confirm {

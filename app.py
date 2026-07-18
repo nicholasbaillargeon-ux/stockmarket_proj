@@ -468,9 +468,19 @@ app.layout = dbc.Container(
             # as a full-page flash. overlay_style keeps the previous dashboard on
             # screen, dimmed, while the new one is computed, and delay_show stops
             # the spinner appearing at all for updates that finish quickly.
-            delay_show=250,
+            delay_show=150,
             overlay_style={"visibility": "visible", "opacity": 0.45,
                            "transition": "opacity 0.15s ease-in-out"},
+            # The default spinner is centred in the children container, which is
+            # ~3000px tall — it rendered about 1000px below the fold, where it
+            # was never actually seen. Keeping the old dashboard on screen means
+            # the stale numbers stay readable during the rebuild, so there has to
+            # be a cue that they are stale. This pill is position:fixed, so it is
+            # in view no matter where the page is scrolled.
+            custom_spinner=html.Div(
+                "Updating…",
+                className="pa-updating",
+            ),
             children=html.Div(id="dashboard-content"),
         ),
 
