@@ -250,9 +250,16 @@ def portfolio_bar():
                 dbc.Button("Save", id="save-portfolio-btn", color="secondary",
                            outline=True, n_clicks=0, className="w-100", disabled=True),
                 md=2),
+            # Deleting drops a saved portfolio out of localStorage with nothing
+            # to undo it, so it goes through a confirm first. The provider only
+            # emits submit_n_clicks once the user accepts.
             dbc.Col(
-                dbc.Button("Delete", id="delete-portfolio-btn", color="secondary",
-                           outline=True, n_clicks=0, className="w-100", disabled=True),
+                dcc.ConfirmDialogProvider(
+                    dbc.Button("Delete", id="delete-portfolio-btn", color="secondary",
+                               outline=True, n_clicks=0, className="w-100", disabled=True),
+                    id="delete-portfolio-confirm",
+                    message="Delete this saved portfolio? This can't be undone.",
+                ),
                 md=2),
             # align="end" bottom-aligns the buttons against the taller labelled
             # fields; the previous empty dbc.Label(" ") spacers only approximated
@@ -781,7 +788,7 @@ def build_dashboard(prices: pd.DataFrame, benchmark: pd.Series | None, tickers: 
     Output("portfolio-name", "value"),
     Output("portfolio-status", "children"),
     Input("save-portfolio-btn", "n_clicks"),
-    Input("delete-portfolio-btn", "n_clicks"),
+    Input("delete-portfolio-confirm", "submit_n_clicks"),
     State("portfolio-name", "value"),
     State("portfolio-select", "value"),
     State("ticker-input", "value"),
@@ -798,7 +805,8 @@ def save_or_delete_portfolio(n_save, n_delete, name, selected, ticker_input, per
     """Write the current setup to localStorage under a name, or drop a saved one."""
     saved = dict(saved or {})
 
-    if ctx.triggered_id == "delete-portfolio-btn":
+    # Fires only after the confirm dialog is accepted, never on the raw click.
+    if ctx.triggered_id == "delete-portfolio-confirm":
         if not selected or selected not in saved:
             return no_update, no_update, no_update, "Pick a saved portfolio to delete."
         saved.pop(selected)
@@ -851,6 +859,18 @@ def arm_save_button(name):
 def arm_delete_button(selected):
     """Delete only means something once a saved portfolio is picked."""
     return not selected
+
+
+@callback(
+    Output("delete-portfolio-confirm", "message"),
+    Input("portfolio-select", "value"),
+)
+def confirm_delete_message(selected):
+    """Name the portfolio in the prompt, so it's clear which one is going."""
+    if not selected:
+        return "Delete this saved portfolio? This can't be undone."
+    return (f"Delete “{selected}”?\n\n"
+            "This removes it from this browser and can't be undone.")
 
 
 @callback(

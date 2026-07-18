@@ -116,6 +116,13 @@ a:hover {
   color: #0d0f1f;
 }
 
+/* ConfirmDialogProvider wraps Delete in a div of its own, which would otherwise
+   shrink-wrap and undo the button's w-100 and the row's baseline alignment. */
+#delete-portfolio-confirm {
+  display: block;
+  width: 100%;
+}
+
 /* Delete is destructive, so it arms without shouting — it just stops looking
    inert once a saved portfolio is selected. */
 #save-portfolio-btn:disabled,
