@@ -2,6 +2,7 @@
 
 import logging
 import math
+import os
 import re
 from pathlib import Path
 
@@ -26,13 +27,23 @@ GOOGLE_FONTS = (
     "&family=JetBrains+Mono:wght@400;500;600&display=swap"
 )
 
-# The dashboard lives under /app/ so the marketing landing page can own /.
+# Where this app is mounted. Standalone it owns "/"; behind the combined
+# reverse proxy it is mounted under a sub-path (e.g. "/portfolio/") via
+# PA_BASE_PATH, so its landing page and dashboard read as one product there too.
+BASE = os.environ.get("PA_BASE_PATH", "/")
+if not BASE.startswith("/"):
+    BASE = "/" + BASE
+if not BASE.endswith("/"):
+    BASE += "/"
+# The dashboard lives under <BASE>app/ so the marketing landing page can own <BASE>.
+APP_PATH = BASE + "app/"
+
 app = Dash(
     __name__,
     external_stylesheets=[dbc.themes.DARKLY, GOOGLE_FONTS],
     title="Portfolio Analyzer",
     suppress_callback_exceptions=True,
-    url_base_pathname="/app/",
+    url_base_pathname=APP_PATH,
 )
 
 # WSGI entry point for gunicorn (`gunicorn app:server`)
@@ -41,9 +52,15 @@ server = app.server
 LANDING_DIR = Path(__file__).parent / "landing"
 
 
-@server.route("/")
+@server.route(BASE)
 def landing():
-    return flask.send_from_directory(LANDING_DIR, "index.html")
+    html_text = (LANDING_DIR / "index.html").read_text(encoding="utf-8")
+    if BASE != "/":
+        # The bundled landing page hardcodes the dashboard link as "/app/";
+        # rewrite it to the mounted path so the call-to-action works behind
+        # the reverse proxy.
+        html_text = html_text.replace("/app/", APP_PATH)
+    return flask.Response(html_text, mimetype="text/html")
 
 
 DEFAULT_TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]
@@ -145,7 +162,7 @@ def app_header():
         },
         children=[
             html.A(
-                href="/",
+                href=BASE,
                 style={"display": "flex", "alignItems": "center", "gap": "12px",
                        "textDecoration": "none", "color": TEXT},
                 children=[
@@ -161,7 +178,7 @@ def app_header():
                     html.Span("Real-time market data · Statistical risk analysis",
                               style={"color": MUTED, "fontSize": "12px",
                                      "letterSpacing": ".04em", "fontFamily": FONT_MONO}),
-                    html.A("← Home", href="/", style=nav_link),
+                    html.A("← Home", href=BASE, style=nav_link),
                     html.A("GitHub", href=REPO_URL, style=nav_link),
                 ],
             ),
